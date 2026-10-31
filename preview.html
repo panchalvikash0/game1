@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>The Claymation Shifter - Live Preview</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #171311;
+      touch-action: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    /* UI Overlay */
+    #hud {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 10;
+      color: #ede2d1;
+      pointer-events: none;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(8px);
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .badge b { color: #f26a4b; }
+    
+    /* Mobile Touch Controls */
+    #touch-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      width: 100%;
+      height: 160px;
+      display: none;
+      pointer-events: none;
+      z-index: 20;
+    }
+    .touch-interactive { pointer-events: auto; }
+    
+    /* Virtual Joystick */
+    #joystick-base {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      width: 110px;
+      height: 110px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 2px dashed rgba(255, 255, 255, 0.25);
+      border-radius: 50%;
+    }
+    #joystick-handle {
+      position: absolute;
+      top: 35px;
+      left: 35px;
+      width: 40px;
+      height: 40px;
+      background: #e05e3e;
+      border-radius: 50%;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    }
+
+    /* Right Action Deck */
+    #action-deck {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 12px;
+    }
+    .morph-selector {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      background: #2b2320;
+      color: #fff;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-transform: uppercase;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+    }
+    .btn.active {
+      background: #e05e3e;
+      border-color: #fff;
+    }
+    .btn:active { transform: scale(0.92); }
+    #jump-btn {
+      width: 64px;
+      height: 64px;
+      font-size: 13px;
+      background: #395a45;
+      border-color: #6ed18c;
+    }
+
+    /* State Indicator */
+    #current-morph-banner {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 10;
+      background: rgba(224, 94, 62, 0.85);
+      color: #fff;
+      font-weight: bold;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    <div class="badge">
+      <b>The Claymation Shifter (Live Preview)</b><br/>
+      Move: <b>W, A, S, D</b> or <b>Arrow Keys</b> | Jump: <b>Space</b><br/>
+      Morph: <b>[1] Sphere</b> &bull; <b>[2] Cake (Slide under)</b> &bull; <b>[3] Tall (High Jump)</b>
+    </div>
+  </div>
+
+  <div id="current-morph-banner">State: SPHERE</div>
+
+  <div id="touch-controls">
+    <div id="joystick-base" class="touch-interactive">
+      <div id="joystick-handle"></div>
+    </div>
+    <div id="action-deck" class="touch-interactive">
+      <div class="morph-selector">
+        <button id="btn-sphere" class="btn active">Ball</button>
+        <button id="btn-pancake" class="btn">Cake</button>
+        <button id="btn-tendril" class="btn">Tall</button>
+      </div>
+      <button id="jump-btn" class="btn">Jump</button>
+    </div>
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // --- 1. SETUP RENDERER & SCENE ---
+    const container = document.getElementById('canvas-container');
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#1f1917');
+    scene.fog = new THREE.FogExp2('#1f1917', 0.025);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 9, 14);
+
+    // Warm Studio Lighting (Emphasizes Clay Tactility)
+    const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x332211, 0.7);
+    scene.add(hemiLight);
+
+    const keyLight = new THREE.DirectionalLight(0xfff3e0, 2.0);
+    keyLight.position.set(12, 18, 8);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 40;
+    const d = 15;
+    keyLight.shadow.camera.left = -d;
+    keyLight.shadow.camera.right = d;
+    keyLight.shadow.camera.top = d;
+    keyLight.shadow.camera.bottom = -d;
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x70a0ff, 0.8);
+    rimLight.position.set(-10, 8, -10);
+    scene.add(rimLight);
+
+    // --- 2. CLAYMATION STOP-MOTION SHADER ---
+    function makeClayMaterial(colorHex) {
+      const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: 0.82,
+        metalness: 0.05,
+        flatShading: true
+      });
+
+      mat.userData = {
+        uTime: { value: 0 },
+        uMorphScale: { value: new THREE.Vector3(1, 1, 1) }
+      };
+
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTime = mat.userData.uTime;
+        shader.uniforms.uMorphScale = mat.userData.uMorphScale;
+
+        shader.vertexShader = `
+          uniform float uTime;
+          uniform vec3 uMorphScale;
+          float hash(vec3 p) {
+            return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+          }
+          ${shader.vertexShader}
+        `;
+
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <begin_vertex>',
+          `
+          #include <begin_vertex>
+          // Quantize animation to 12 FPS (clay stop-motion jitter)
+          float stepTime = floor(uTime * 12.0) / 12.0;
+          float jitter = hash(transformed + vec3(stepTime * 0.2)) * 0.04;
+          transformed += normal * jitter;
+          transformed *= uMorphScale;
+          `
+        );
+      };
+      return mat;
+    }
+
+    // --- 3. BUILD LEVEL ENVIRONMENT ---
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x483a34, roughness: 0.9 });
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(60, 1, 60), floorMat);
+    floor.position.y = -0.5;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Grid Floor markings
+    const grid = new THREE.GridHelper(60, 30, 0x826553, 0x2e231e);
+    grid.position.y = 0.01;
+    scene.add(grid);
+
+    // Archway
+    const archMat = new THREE.MeshStandardMaterial({ color: 0x7c695b, roughness: 0.7 });
+    const archLeft = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 1), archMat);
+    archLeft.position.set(-3.5, 2, -6);
+    archLeft.castShadow = true;
+    archLeft.receiveShadow = true;
+    scene.add(archLeft);
+
+    const archRight = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 1), archMat);
+    archRight.position.set(3.5, 2, -6);
+    archRight.castShadow = true;
+    archRight.receiveShadow = true;
+    scene.add(archRight);
+
+    const crossBar = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 1), archMat);
+    crossBar.position.set(0, 2.5, -6);
+    crossBar.castShadow = true;
+    crossBar.receiveShadow = true;
+    scene.add(crossBar);
+
+    // Ledge
+    const ledgeMat = new THREE.MeshStandardMaterial({ color: 0x5e5046, roughness: 0.8 });
+    const ledge = new THREE.Mesh(new THREE.BoxGeometry(10, 2.6, 6), ledgeMat);
+    ledge.position.set(0, 1.3, -15);
+    ledge.castShadow = true;
+    ledge.receiveShadow = true;
+    scene.add(ledge);
+
+    // Goal Star
+    const starGeom = new THREE.OctahedronGeometry(0.6, 0);
+    const starMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xaa7700, roughness: 0.3 });
+    const goalStar = new THREE.Mesh(starGeom, starMat);
+    goalStar.position.set(0, 3.4, -15);
+    scene.add(goalStar);
+
+    // --- 4. PLAYER ---
+    const clayMat = makeClayMaterial(0xe05638);
+    const playerGeom = new THREE.SphereGeometry(0.7, 24, 16);
+    const playerMesh = new THREE.Mesh(playerGeom, clayMat);
+    playerMesh.castShadow = true;
+    playerMesh.position.set(0, 0.7, 4);
+    scene.add(playerMesh);
+
+    // Eyes
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), eyeMat);
+    const rightEye = leftEye.clone();
+    const pupilLeft = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), pupilMat);
+    pupilLeft.position.z = 0.1;
+    leftEye.add(pupilLeft);
+    const pupilRight = pupilLeft.clone();
+    rightEye.add(pupilRight);
+
+    leftEye.position.set(0.25, 0.2, 0.55);
+    rightEye.position.set(-0.25, 0.2, 0.55);
+    playerMesh.add(leftEye);
+    playerMesh.add(rightEye);
+
+    // Physics
+    const playerPos = new THREE.Vector3(0, 0.7, 4);
+    const playerVel = new THREE.Vector3(0, 0, 0);
+    const targetScale = new THREE.Vector3(1, 1, 1);
+    const currentScale = new THREE.Vector3(1, 1, 1);
+    let currentMorph = 'SPHERE';
+    let isGrounded = true;
+
+    function setMorphState(state) {
+      currentMorph = state;
+      document.getElementById('current-morph-banner').innerText = `State: ${state}`;
+      
+      document.querySelectorAll('.morph-selector .btn').forEach(b => b.classList.remove('active'));
+      if (state === 'SPHERE') {
+        document.getElementById('btn-sphere').classList.add('active');
+        targetScale.set(1.0, 1.0, 1.0);
+      } else if (state === 'PANCAKE') {
+        document.getElementById('btn-pancake').classList.add('active');
+        targetScale.set(1.65, 0.35, 1.65);
+      } else if (state === 'TENDRIL') {
+        document.getElementById('btn-tendril').classList.add('active');
+        targetScale.set(0.6, 1.8, 0.6);
+      }
+    }
+
+    // Input
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+      if (e.code === 'Digit1') setMorphState('SPHERE');
+      if (e.code === 'Digit2') setMorphState('PANCAKE');
+      if (e.code === 'Digit3') setMorphState('TENDRIL');
+      if (e.code === 'Space') doJump();
+    });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+    let touchInput = { x: 0, y: 0 };
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouch) {
+      document.getElementById('touch-controls').style.display = 'block';
+      const base = document.getElementById('joystick-base');
+      const handle = document.getElementById('joystick-handle');
+      let activeTouchId = null;
+      const center = 55;
+      const radius = 40;
+
+      base.addEventListener('touchstart', (e) => {
+        const t = e.changedTouches[0];
+        activeTouchId = t.identifier;
+        updateStick(t);
+      }, { passive: false });
+
+      base.addEventListener('touchmove', (e) => {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          if (e.changedTouches[i].identifier === activeTouchId) {
+            updateStick(e.changedTouches[i]);
+          }
+        }
+      }, { passive: false });
+
+      const stopStick = (e) => {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          if (e.changedTouches[i].identifier === activeTouchId) {
+            activeTouchId = null;
+            handle.style.transform = 'translate(0px, 0px)';
+            touchInput.x = 0;
+            touchInput.y = 0;
+          }
+        }
+      };
+      base.addEventListener('touchend', stopStick);
+      base.addEventListener('touchcancel', stopStick);
+
+      function updateStick(t) {
+        const rect = base.getBoundingClientRect();
+        const dx = t.clientX - rect.left - center;
+        const dy = t.clientY - rect.top - center;
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+        const clampedDist = Math.min(dist, radius);
+        const nx = Math.cos(angle) * clampedDist;
+        const ny = Math.sin(angle) * clampedDist;
+        handle.style.transform = `translate(${nx}px, ${ny}px)`;
+        touchInput.x = nx / radius;
+        touchInput.y = ny / radius;
+      }
+
+      document.getElementById('jump-btn').addEventListener('touchstart', (e) => { e.preventDefault(); doJump(); });
+      document.getElementById('btn-sphere').addEventListener('touchstart', (e) => { e.preventDefault(); setMorphState('SPHERE'); });
+      document.getElementById('btn-pancake').addEventListener('touchstart', (e) => { e.preventDefault(); setMorphState('PANCAKE'); });
+      document.getElementById('btn-tendril').addEventListener('touchstart', (e) => { e.preventDefault(); setMorphState('TENDRIL'); });
+    }
+
+    function doJump() {
+      if (!isGrounded) return;
+      let jumpVelocity = 11.0;
+      if (currentMorph === 'TENDRIL') jumpVelocity = 16.5;
+      if (currentMorph === 'PANCAKE') jumpVelocity = 6.0;
+      playerVel.y = jumpVelocity;
+      isGrounded = false;
+    }
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.05);
+      const totalTime = clock.getElapsedTime();
+
+      let mx = touchInput.x;
+      let mz = touchInput.y;
+      if (!isTouch) {
+        if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) mx += 1;
+        if (keys['KeyW'] || keys['ArrowUp']) mz -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) mz -= 1;
+      }
+      const len = Math.hypot(mx, mz);
+      if (len > 0) {
+        mx /= len;
+        mz /= len;
+      }
+
+      const speed = (currentMorph === 'SPHERE' ? 12.0 : (currentMorph === 'PANCAKE' ? 7.0 : 8.5));
+      playerVel.x = mx * speed;
+      playerVel.z = mz * speed;
+      playerVel.y -= 28.0 * delta;
+
+      playerPos.x += playerVel.x * delta;
+      playerPos.y += playerVel.y * delta;
+      playerPos.z += playerVel.z * delta;
+
+      const currentHeight = 0.7 * currentScale.y;
+      const currentRadius = 0.7 * currentScale.x;
+
+      if (playerPos.y <= currentHeight) {
+        playerPos.y = currentHeight;
+        playerVel.y = 0;
+        isGrounded = true;
+      }
+
+      if (Math.abs(playerPos.z - (-6)) < (0.5 + currentRadius) && Math.abs(playerPos.x) < 2.0) {
+        const topOfHead = playerPos.y + currentHeight;
+        if (topOfHead > 1.0) {
+          if (playerVel.z < 0) {
+            playerPos.z = -6 + (0.5 + currentRadius);
+          } else if (playerVel.z > 0) {
+            playerPos.z = -6 - (0.5 + currentRadius);
+          }
+        }
+      }
+
+      if (playerPos.x > -5 && playerPos.x < 5 && playerPos.z > -18 && playerPos.z < -12) {
+        if (playerPos.y - currentHeight < 2.6 && (playerPos.y - playerVel.y * delta) >= 2.5 + currentHeight) {
+          playerPos.y = 2.6 + currentHeight;
+          playerVel.y = 0;
+          isGrounded = true;
+        } else if (playerPos.y < 2.6) {
+          playerPos.z = -12 + currentRadius;
+        }
+      }
+
+      currentScale.lerp(targetScale, delta * 12.0);
+      clayMat.userData.uMorphScale.value.copy(currentScale);
+      clayMat.userData.uTime.value = totalTime;
+
+      playerMesh.position.copy(playerPos);
+      if (currentMorph === 'SPHERE' && (mx !== 0 || mz !== 0)) {
+        playerMesh.rotation.x += mz * delta * 8.0;
+        playerMesh.rotation.z -= mx * delta * 8.0;
+      } else {
+        playerMesh.rotation.x *= 0.85;
+        playerMesh.rotation.z *= 0.85;
+      }
+
+      goalStar.rotation.y += delta * 1.5;
+      goalStar.rotation.x = Math.sin(totalTime * 2.0) * 0.2;
+
+      const targetCamPos = new THREE.Vector3(playerPos.x * 0.4, playerPos.y + 6.5, playerPos.z + 11.5);
+      camera.position.lerp(targetCamPos, delta * 6.0);
+      camera.lookAt(playerPos.x, playerPos.y + 0.5, playerPos.z);
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+  </script>
+</body>
+</html>

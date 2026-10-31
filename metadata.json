@@ -1,0 +1,6 @@
+{
+  "name": "The Claymation Shifter",
+  "description": "Tactile 3D stop-motion clay physics puzzle platformer featuring shape morphing, diorama workshop environments, and handcrafted challenges.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
